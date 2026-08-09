@@ -58,20 +58,24 @@ Forgejo 조회 코드와 git-pages 갱신 코드는 HTTP webhook 처리에서 �
 go run ./cmd/homelab-forgejo-webhook
 ```
 
-Forgejo 저장소 webhook의 Target URL은 다음 형식입니다.
+`FORGEJO_PAGES_OWNER`로 지정한 조직에는 조직 webhook 하나만 등록하면 됩니다.
+Target URL은 다음과 같습니다.
 
 ```text
-http://<서비스 주소>:8081/hooks/forgejo/<저장소 이름>
+http://<서비스 주소>:8081/hooks/forgejo
 ```
 
 Content Type은 `application/json`, 이벤트는 Push Events를 선택하고
 `WEBHOOK_SECRET`과 같은 Secret을 입력합니다.
+서명 검증이 끝난 뒤 payload의 저장소 이름을 사용하며, Forgejo API로 소유자와
+공개 여부를 다시 확인합니다. 기존 저장소별 URL도 호환을 위해 계속 지원합니다.
 
 ## HTTP endpoint
 
 | 경로 | 용도 |
 | --- | --- |
-| `/hooks/forgejo/<저장소>` | Forgejo push webhook |
+| `/hooks/forgejo` | 조직 전체에 사용하는 Forgejo push webhook |
+| `/hooks/forgejo/<저장소>` | 기존 저장소별 Forgejo push webhook |
 | `/healthz` | 프로세스 상태 |
 | `/readyz` | Forgejo와 git-pages 의존성 상태 |
 | `/metrics` | Prometheus 형식 메트릭 |

@@ -124,7 +124,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handler.ready(w, r)
 	case r.URL.Path == "/metrics":
 		handler.metrics.serve(w, r)
-	case strings.HasPrefix(r.URL.Path, "/hooks/forgejo/"):
+	case r.URL.Path == "/hooks/forgejo" || strings.HasPrefix(r.URL.Path, "/hooks/forgejo/"):
 		handler.webhook(w, r)
 	default:
 		http.NotFound(w, r)
@@ -168,12 +168,16 @@ func (handler *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repository := strings.TrimPrefix(r.URL.Path, "/hooks/forgejo/")
-	if !repositoryNamePattern.MatchString(repository) || strings.Contains(repository, "/") {
+	requestedRepository := ""
+	if r.URL.Path != "/hooks/forgejo" {
+		requestedRepository = strings.TrimPrefix(r.URL.Path, "/hooks/forgejo/")
+	}
+	if requestedRepository != "" &&
+		(!repositoryNamePattern.MatchString(requestedRepository) || strings.Contains(requestedRepository, "/")) {
 		handler.reject(w, "invalid repository name", http.StatusBadRequest)
 		return
 	}
-	if _, reserved := reservedNames[repository]; reserved {
+	if _, reserved := reservedNames[requestedRepository]; reserved {
 		handler.reject(w, "reserved repository name", http.StatusBadRequest)
 		return
 	}
@@ -201,6 +205,20 @@ func (handler *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 	var payload pushPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		handler.reject(w, "invalid webhook payload", http.StatusBadRequest)
+		return
+	}
+
+	repository := payload.Repository.Name
+	if !repositoryNamePattern.MatchString(repository) {
+		handler.reject(w, "invalid repository name", http.StatusBadRequest)
+		return
+	}
+	if _, reserved := reservedNames[repository]; reserved {
+		handler.reject(w, "reserved repository name", http.StatusBadRequest)
+		return
+	}
+	if requestedRepository != "" && requestedRepository != repository {
+		handler.reject(w, "repository does not match webhook URL", http.StatusForbidden)
 		return
 	}
 

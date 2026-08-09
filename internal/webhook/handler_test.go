@@ -141,6 +141,36 @@ func TestValidWebhookDeploysVerifiedRepository(t *testing.T) {
 	}
 }
 
+func TestOrganizationWebhookDeploysPayloadRepository(t *testing.T) {
+	handler, _, gitPagesClient := newTestHandler(t)
+	request := signedRequest(webhookBody("pages", "refs/heads/main", testCommit))
+	request.URL.Path = "/hooks/forgejo"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if len(gitPagesClient.deployments) != 1 || gitPagesClient.deployments[0].Repository != "site" {
+		t.Fatalf("deployments = %#v", gitPagesClient.deployments)
+	}
+}
+
+func TestRepositoryWebhookRejectsPayloadForAnotherRepository(t *testing.T) {
+	handler, forgejoClient, gitPagesClient := newTestHandler(t)
+	request := signedRequest(webhookBody("pages", "refs/heads/main", testCommit))
+	request.URL.Path = "/hooks/forgejo/another-site"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if forgejoClient.calls != 0 || len(gitPagesClient.deployments) != 0 {
+		t.Fatalf("Forgejo calls=%d deployments=%d", forgejoClient.calls, len(gitPagesClient.deployments))
+	}
+}
+
 func TestInvalidSignatureIsRejectedBeforeForgejoLookup(t *testing.T) {
 	handler, forgejoClient, gitPagesClient := newTestHandler(t)
 	request := signedRequest(webhookBody("pages", "refs/heads/main", testCommit))
