@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -99,22 +100,20 @@ func (client *Client) Deploy(ctx context.Context, deployment Deployment) error {
 }
 
 func (client *Client) Ready(ctx context.Context) error {
-	target := *client.baseURL
-	target.Path = "/"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	port := client.baseURL.Port()
+	if port == "" {
+		port = "80"
+		if client.baseURL.Scheme == "https" {
+			port = "443"
+		}
+	}
+	// Check the listener without requesting a nonexistent site and emitting 404 logs.
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(client.baseURL.Hostname(), port))
 	if err != nil {
-		return err
+		return fmt.Errorf("git-pages TCP readiness: %w", err)
 	}
-	request.Host = "readyz." + client.pagesDomain
-	response, err := client.http.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-	if response.StatusCode >= 500 {
-		return fmt.Errorf("git-pages returned %s", response.Status)
-	}
+	_ = conn.Close()
 	return nil
 }
 

@@ -3,13 +3,64 @@ package gitpages
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestReadyConnectsWithoutSendingRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	result := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			result <- err
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var buf [1]byte
+		_, err = conn.Read(buf[:])
+		result <- err
+	}()
+	client, err := NewClient("http://"+listener.Addr().String(), "pages.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Ready(context.Background()); err != nil {
+		t.Fatalf("Ready() error = %v", err)
+	}
+	if err := <-result; err != io.EOF {
+		t.Fatalf("read error = %v, want EOF without request bytes", err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Ready(context.Background()); err == nil {
+		t.Fatal("Ready() succeeded with a closed listener")
+	}
+}
+
+func TestReadyHonorsCanceledContext(t *testing.T) {
+	client, err := NewClient("http://127.0.0.1:3000", "pages.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := client.Ready(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Ready() error = %v, want context.Canceled", err)
+	}
+}
 
 func TestDeployUpdatesAndConfirmsManifest(t *testing.T) {
 	const commit = "1111111111111111111111111111111111111111"
